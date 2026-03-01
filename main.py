@@ -1,19 +1,16 @@
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-import pandas as pd
 import requests
 from datetime import datetime
 import re
 
 app = FastAPI()
 
-# ====== STAŁE ======
-
 today = datetime.now()
 CURRENT_YEAR = today.year
 CURRENT_MONTH = today.month
 
-# schematy wejść
+# ===== SCHEMATY =====
 
 SOBOTA_SCHEMATY = {
     "10:30-17:00": ["11:00","12:00","13:00","15:00","16:00"],
@@ -27,23 +24,36 @@ NIEDZIELA_SCHEMATY = {
     "13:00-19:00": ["13:00","14:20","16:00","17:00","18:00"]
 }
 
-# ====== FUNKCJE ======
+# ===== PARSER =====
 
 def parse_weekendy():
-    df = pd.read_csv("grafik.csv")
-
     weekendy = {}
 
-    for col in df.columns:
-        if re.match(r"\d{2}/\d{2}/\d{4}", str(col)):
-            date_obj = datetime.strptime(col, "%d/%m/%Y")
+    with open("grafik.csv", encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split(",")
 
-            if date_obj.year == CURRENT_YEAR and date_obj.month == CURRENT_MONTH:
-                if date_obj.weekday() in [5,6]:  # sobota=5, niedziela=6
+            if len(parts) < 4:
+                continue
 
-                    for value in df[col].dropna():
-                        if re.match(r"\d{1,2}:\d{2}-\d{1,2}:\d{2}", str(value)):
-                            weekendy[col] = str(value)
+            if re.match(r"\d{2}/\d{2}/\d{4}", parts[0]):
+
+                data_str = parts[0]
+                dzien = parts[1].lower()
+
+                if "sobota" in dzien or "niedziela" in dzien:
+
+                    start = parts[2]
+                    koniec = parts[3]
+
+                    if start not in ["off","L4"] and ":" in start:
+
+                        date_obj = datetime.strptime(data_str, "%d/%m/%Y")
+
+                        if date_obj.year == CURRENT_YEAR and date_obj.month == CURRENT_MONTH:
+
+                            zakres = f"{start}-{koniec}"
+                            weekendy[data_str] = zakres
 
     return weekendy
 
@@ -63,7 +73,7 @@ def pobierz_wolne(data_iso, godziny):
         params={
             "ajax": "pobierzTerminy",
             "selectedDate": data_iso,
-            "idw": 23,  # nowa ciemność
+            "idw": 23,
             "idl": 0,
             "idg": 0
         }
@@ -71,15 +81,17 @@ def pobierz_wolne(data_iso, godziny):
 
     wynik = {}
 
-    if r.json()["status"] == "complete":
-        for item in r.json()["data"]:
+    json_data = r.json()
+
+    if json_data["status"] == "complete":
+        for item in json_data["data"]:
             if item["terminGodzina"] in godziny:
                 wynik[item["terminGodzina"]] = item["wolne"]
 
     return wynik
 
 
-# ====== STRONA ======
+# ===== STRONA =====
 
 @app.get("/", response_class=HTMLResponse)
 def moje_tury():
@@ -88,7 +100,11 @@ def moje_tury():
 
     html = "<h1>Moje Tury – Bieżący miesiąc</h1>"
 
-    for data_str, zakres in weekendy.items():
+    if not weekendy:
+        html += "<p>Brak weekendowych zmian w tym miesiącu.</p>"
+        return html
+
+    for data_str, zakres in sorted(weekendy.items()):
 
         wejscia = generuj_wejscia(data_str, zakres)
 
