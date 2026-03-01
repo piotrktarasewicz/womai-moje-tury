@@ -24,7 +24,16 @@ NIEDZIELA_SCHEMATY = {
     "13:00-19:00": ["13:00","14:20","16:00","17:00","18:00"]
 }
 
-# ===== PARSER =====
+# ===== IDW LOGIKA =====
+
+def pobierz_idw(date_obj):
+    granica = datetime(2026, 3, 1)
+    if date_obj >= granica:
+        return [23, 24]  # nowe
+    else:
+        return [1, 17]   # stare
+
+# ===== PARSER GRAFIKU =====
 
 def parse_weekendy():
     weekendy = {}
@@ -52,6 +61,10 @@ def parse_weekendy():
 
                         if date_obj.year == CURRENT_YEAR and date_obj.month == CURRENT_MONTH:
 
+                            # ujednolicenie formatu
+                            start = start.zfill(5)
+                            koniec = koniec.zfill(5)
+
                             zakres = f"{start}-{koniec}"
                             weekendy[data_str] = zakres
 
@@ -67,26 +80,27 @@ def generuj_wejscia(data_str, zakres):
         return NIEDZIELA_SCHEMATY.get(zakres, [])
 
 
-def pobierz_wolne(data_iso, godziny):
-    r = requests.get(
-        "https://www.rezerwacja.womai.pl/index/ajax.html",
-        params={
-            "ajax": "pobierzTerminy",
-            "selectedDate": data_iso,
-            "idw": 23,
-            "idl": 0,
-            "idg": 0
-        }
-    )
-
+def pobierz_wolne(data_iso, godziny, idw_lista):
     wynik = {}
 
-    json_data = r.json()
+    for idw in idw_lista:
+        r = requests.get(
+            "https://www.rezerwacja.womai.pl/index/ajax.html",
+            params={
+                "ajax": "pobierzTerminy",
+                "selectedDate": data_iso,
+                "idw": idw,
+                "idl": 0,
+                "idg": 0
+            }
+        )
 
-    if json_data["status"] == "complete":
-        for item in json_data["data"]:
-            if item["terminGodzina"] in godziny:
-                wynik[item["terminGodzina"]] = item["wolne"]
+        json_data = r.json()
+
+        if json_data["status"] == "complete":
+            for item in json_data["data"]:
+                if item["terminGodzina"] in godziny:
+                    wynik[item["terminGodzina"]] = item["wolne"]
 
     return wynik
 
@@ -111,12 +125,20 @@ def moje_tury():
         date_obj = datetime.strptime(data_str, "%d/%m/%Y")
         data_iso = date_obj.strftime("%Y-%m-%d")
 
-        wolne = pobierz_wolne(data_iso, wejscia)
+        idw_lista = pobierz_idw(date_obj)
+
+        wolne = pobierz_wolne(data_iso, wejscia, idw_lista)
 
         html += f"<h2>{data_str} ({zakres})</h2>"
 
+        znalezione = False
+
         for godzina in wejscia:
-            ile = wolne.get(godzina, "—")
-            html += f"<div style='margin-bottom:10px;font-size:22px;'>{godzina}, {ile} wolnych</div>"
+            if godzina in wolne:
+                znalezione = True
+                html += f"<div style='margin-bottom:10px;font-size:22px;'>{godzina}, {wolne[godzina]} wolnych</div>"
+
+        if not znalezione:
+            html += "<div>Brak aktywnych wejść w systemie sprzedaży.</div>"
 
     return html
