@@ -30,9 +30,6 @@ SCHEMATY_NIEDZIELA = {
     ("13:00", "19:00"): ["13:00", "14:20", "16:00", "17:00", "18:00"],
 }
 
-DNI_WEEKEND = {"Sat", "Sun"}
-DNI_WEEKEND_PL = {"sobota", "niedziela"}
-
 
 def dzisiaj():
     return date.today()
@@ -51,22 +48,41 @@ def render_page(title: str, body: str) -> HTMLResponse:
 body {{
     font-family: Arial, sans-serif;
     font-size: 22px;
-    line-height: 1.5;
+    line-height: 1.6;
     padding: 20px;
+    max-width: 900px;
+    margin: 0 auto;
+}}
+label {{
+    display: block;
+    margin-bottom: 10px;
 }}
 select, button {{
     font-size: 22px;
-    padding: 8px;
+    padding: 10px;
     margin-top: 10px;
+    max-width: 100%;
+}}
+button {{
+    cursor: pointer;
 }}
 a.button-link {{
     display: inline-block;
     font-size: 22px;
-    padding: 8px 12px;
+    padding: 10px 14px;
     margin-top: 20px;
     border: 1px solid #444;
     text-decoration: none;
     color: inherit;
+}}
+ul {{
+    padding-left: 24px;
+}}
+li {{
+    margin-bottom: 10px;
+}}
+.helper-text {{
+    margin-top: 6px;
 }}
 </style>
 </head>
@@ -82,8 +98,9 @@ def normalizuj_godzine(value: str) -> str:
     if not value:
         return ""
 
-    if value.lower() in {"off", "l4"}:
-        return value.lower()
+    low = value.lower()
+    if low in {"off", "l4"}:
+        return low
 
     parts = value.split(":")
     if len(parts) != 2:
@@ -109,6 +126,15 @@ def parse_date_cell(value: str):
             continue
 
     return None
+
+
+def formatuj_date_pl(dt: date) -> str:
+    return f"{dt.day} {MIESIACE[dt.month - 1]} {dt.year}"
+
+
+def formatuj_ture(item: dict) -> str:
+    dt = item["date"]
+    return f'{item["day_name"]}, {formatuj_date_pl(dt)}, {item["start"]}–{item["end"]}'
 
 
 def wczytaj_csv():
@@ -137,22 +163,18 @@ def znajdz_naglowek_i_wiersz_grafiku(rows):
         raise ValueError("Nie znaleziono wiersza z grafikiem Krzysztofa Tarasewicza.")
 
     for row in rows:
-        found_date = False
-        found_weekend_marker = False
-
-        for cell in row:
-            cell_stripped = (cell or "").strip()
-            if parse_date_cell(cell_stripped):
-                found_date = True
-            if cell_stripped in DNI_WEEKEND:
-                found_weekend_marker = True
-
-        if found_date and found_weekend_marker:
+        found_blocks = 0
+        for i in range(2, len(row), 3):
+            dt = parse_date_cell(row[i] if i < len(row) else "")
+            day_name = (row[i + 2] if i + 2 < len(row) else "").strip()
+            if dt and day_name:
+                found_blocks += 1
+        if found_blocks >= 3:
             header_row = row
             break
 
     if header_row is None:
-        raise ValueError("Nie znaleziono wiersza nagłówkowego z datami i dniami tygodnia.")
+        raise ValueError("Nie znaleziono wiersza nagłówkowego z datami.")
 
     return header_row, grafik_row
 
@@ -164,24 +186,19 @@ def pobierz_weekendowe_zmiany():
     today = dzisiaj()
     results = []
 
-    max_len = max(len(header_row), len(grafik_row))
-
-    for i in range(max_len):
-        cell = header_row[i].strip() if i < len(header_row) and header_row[i] else ""
-        dt = parse_date_cell(cell)
-
+    for i in range(2, len(header_row), 3):
+        dt = parse_date_cell(header_row[i] if i < len(header_row) else "")
         if not dt:
-            continue
-
-        day_name = header_row[i + 2].strip() if i + 2 < len(header_row) and header_row[i + 2] else ""
-        if day_name not in DNI_WEEKEND:
             continue
 
         if dt < today:
             continue
 
-        start_raw = grafik_row[i + 2].strip() if i + 2 < len(grafik_row) and grafik_row[i + 2] else ""
-        end_raw = grafik_row[i + 3].strip() if i + 3 < len(grafik_row) and grafik_row[i + 3] else ""
+        if dt.weekday() not in (5, 6):
+            continue
+
+        start_raw = grafik_row[i].strip() if i < len(grafik_row) and grafik_row[i] else ""
+        end_raw = grafik_row[i + 1].strip() if i + 1 < len(grafik_row) and grafik_row[i + 1] else ""
 
         start = normalizuj_godzine(start_raw)
         end = normalizuj_godzine(end_raw)
@@ -189,7 +206,7 @@ def pobierz_weekendowe_zmiany():
         if start in {"off", "l4", ""} or end in {"off", "l4", ""}:
             continue
 
-        if day_name == "Sat":
+        if dt.weekday() == 5:
             wejscia = SCHEMATY_SOBOTA.get((start, end))
             dzien_tygodnia = "sobota"
         else:
@@ -258,6 +275,7 @@ def index():
         body = (
             '<h1 tabindex="-1" id="pageHeading">Moje tury</h1>'
             f'<p>{html.escape(str(e))}</p>'
+            '<script>document.getElementById("pageHeading").focus();</script>'
         )
         return render_page("Błąd - Moje tury", body)
 
@@ -271,24 +289,24 @@ def index():
 
     options = []
     for idx, item in enumerate(weekendy):
-        dt = item["date"]
-        label = f'{item["day_name"]}, {dt.day} {MIESIACE[dt.month - 1]} {dt.year}, {item["start"]}–{item["end"]}'
+        label = formatuj_ture(item)
         options.append(f'<option value="{idx}">{html.escape(label)}</option>')
 
     body = f"""
-<h1>Moje tury</h1>
+<h1 tabindex="-1" id="pageHeading">Moje tury</h1>
 
-<form action="/wynik" method="get">
-<label>Wybierz turę:<br>
-<select name="idx" autofocus>
+<form action="/wynik" method="get" aria-labelledby="pageHeading">
+<label for="idx">Wybierz turę:</label>
+<select name="idx" id="idx" autofocus>
 {''.join(options)}
 </select>
-</label>
 
-<br><br>
+<p class="helper-text">Na liście znajdują się tylko nadchodzące weekendy, w które pracujesz.</p>
 
-<button type="submit">Sprawdź</button>
+<button type="submit">Sprawdź wolne miejsca</button>
 </form>
+
+<script>document.getElementById("pageHeading").focus();</script>
 """
     return render_page("Moje tury", body)
 
@@ -318,10 +336,12 @@ def wynik(idx: int):
     item = weekendy[idx]
     dt = item["date"]
     entries = item["entries"]
+    opis_tury = formatuj_ture(item)
 
     if not entries:
         body = f"""
-<h1 tabindex="-1" id="pageHeading">Wyniki dla {dt.day} {MIESIACE[dt.month - 1]} {dt.year}</h1>
+<h1 tabindex="-1" id="pageHeading">Wyniki</h1>
+<p><strong>Wybrana tura:</strong> {html.escape(opis_tury)}</p>
 <p>Nierozpoznany schemat zmiany: {html.escape(item["start"])}–{html.escape(item["end"])}</p>
 <a class="button-link" href="/">Wróć do wyboru</a>
 <script>document.getElementById("pageHeading").focus();</script>
@@ -331,20 +351,31 @@ def wynik(idx: int):
     idw_list = pobierz_idw(dt)
     wolne_map = pobierz_wolne(dt, entries, idw_list)
 
-    result_lines = []
+    result_items = []
+    ma_dane = False
+
     for godzina in entries:
         if godzina in wolne_map:
-            result_lines.append(
-                f'<p>Godzina {html.escape(godzina)}, {html.escape(str(wolne_map[godzina]))} wolnych</p>'
+            ma_dane = True
+            result_items.append(
+                f'<li>Godzina {html.escape(godzina)}: {html.escape(str(wolne_map[godzina]))} wolnych miejsc</li>'
             )
         else:
-            result_lines.append(
-                f'<p>Godzina {html.escape(godzina)}, brak danych</p>'
+            result_items.append(
+                f'<li>Godzina {html.escape(godzina)}: brak danych</li>'
             )
 
+    dodatkowy_komunikat = ""
+    if not ma_dane:
+        dodatkowy_komunikat = "<p>API nie zwróciło danych o wolnych miejscach dla tej tury.</p>"
+
     body = f"""
-<h1 tabindex="-1" id="pageHeading">Wyniki dla {dt.day} {MIESIACE[dt.month - 1]} {dt.year}</h1>
-{''.join(result_lines)}
+<h1 tabindex="-1" id="pageHeading">Wyniki</h1>
+<p><strong>Wybrana tura:</strong> {html.escape(opis_tury)}</p>
+{dodatkowy_komunikat}
+<ul>
+{''.join(result_items)}
+</ul>
 <a class="button-link" href="/">Wróć do wyboru</a>
 <script>document.getElementById("pageHeading").focus();</script>
 """
