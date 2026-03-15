@@ -80,15 +80,6 @@ a.button-link {{
     text-decoration: none;
     color: inherit;
 }}
-ul {{
-    padding-left: 24px;
-}}
-li {{
-    margin-bottom: 10px;
-}}
-.helper-text {{
-    margin-top: 6px;
-}}
 </style>
 </head>
 <body>
@@ -165,7 +156,7 @@ def znajdz_naglowek_i_wiersz_grafiku(rows):
             break
 
     if grafik_row is None:
-        raise ValueError("Nie znaleziono wiersza z grafikiem Krzysztofa Tarasewicza.")
+        raise ValueError("Nie znaleziono wiersza Krzysztofa Tarasewicza.")
 
     for row in rows:
         found_blocks = 0
@@ -179,7 +170,7 @@ def znajdz_naglowek_i_wiersz_grafiku(rows):
             break
 
     if header_row is None:
-        raise ValueError("Nie znaleziono wiersza nagłówkowego z datami.")
+        raise ValueError("Nie znaleziono wiersza z datami.")
 
     return header_row, grafik_row
 
@@ -321,7 +312,7 @@ def index():
     if not weekendy:
         body = (
             '<h1 tabindex="-1" id="pageHeading">Moje tury</h1>'
-            '<p>Brak nadchodzących weekendowych zmian w grafiku.</p>'
+            '<p>Brak weekendowych zmian.</p>'
             '<script>document.getElementById("pageHeading").focus();</script>'
         )
         return render_page("Moje tury", body)
@@ -334,15 +325,15 @@ def index():
     body = f"""
 <h1 tabindex="-1" id="pageHeading">Moje tury</h1>
 
-<form action="/wynik" method="get" aria-labelledby="pageHeading">
+<form action="/wynik" method="get">
 <label for="idx">Wybierz turę:</label>
 <select name="idx" id="idx" autofocus>
 {''.join(options)}
 </select>
 
-<p class="helper-text">Na liście znajdują się tylko nadchodzące weekendy, w które pracujesz.</p>
+<br><br>
 
-<button type="submit">Sprawdź wolne miejsca</button>
+<button type="submit">Sprawdź</button>
 </form>
 
 <script>document.getElementById("pageHeading").focus();</script>
@@ -358,7 +349,7 @@ def wynik(idx: int):
         body = (
             '<h1 tabindex="-1" id="pageHeading">Błąd</h1>'
             f'<p>{html.escape(str(e))}</p>'
-            '<a class="button-link" href="/">Wróć do wyboru</a>'
+            '<a class="button-link" href="/">Wróć</a>'
             '<script>document.getElementById("pageHeading").focus();</script>'
         )
         return render_page("Błąd - Moje tury", body)
@@ -367,7 +358,7 @@ def wynik(idx: int):
         body = (
             '<h1 tabindex="-1" id="pageHeading">Nieprawidłowy wybór</h1>'
             '<p>Wybrana tura nie istnieje.</p>'
-            '<a class="button-link" href="/">Wróć do wyboru</a>'
+            '<a class="button-link" href="/">Wróć</a>'
             '<script>document.getElementById("pageHeading").focus();</script>'
         )
         return render_page("Nieprawidłowy wybór - Moje tury", body)
@@ -380,16 +371,16 @@ def wynik(idx: int):
     if not entries:
         body = f"""
 <h1 tabindex="-1" id="pageHeading">Wyniki</h1>
-<p><strong>Wybrana tura:</strong> {html.escape(opis_tury)}</p>
+<p>{html.escape(opis_tury)}</p>
 <p>Nierozpoznany schemat zmiany: {html.escape(item["start"])}–{html.escape(item["end"])}</p>
-<a class="button-link" href="/">Wróć do wyboru</a>
+<a class="button-link" href="/">Wróć</a>
 <script>document.getElementById("pageHeading").focus();</script>
 """
         return render_page("Wyniki - Moje tury", body)
 
     wolne_map = pobierz_wolne(dt, entries)
 
-    result_items = []
+    result_lines = []
     ma_dane = False
 
     for godzina in entries:
@@ -398,26 +389,24 @@ def wynik(idx: int):
         if rekordy:
             ma_dane = True
             for rekord in rekordy:
-                result_items.append(
-                    f'<li>Godzina {html.escape(godzina)}, {html.escape(rekord["typ"])}: {html.escape(str(rekord["wolne"]))} wolnych miejsc</li>'
+                result_lines.append(
+                    f'<p>{html.escape(godzina)}, {html.escape(rekord["typ"])}: {html.escape(str(rekord["wolne"]))} wolnych</p>'
                 )
         else:
-            result_items.append(
-                f'<li>Godzina {html.escape(godzina)}: brak danych</li>'
+            result_lines.append(
+                f'<p>{html.escape(godzina)}: brak danych</p>'
             )
 
     dodatkowy_komunikat = ""
     if not ma_dane:
-        dodatkowy_komunikat = "<p>API nie zwróciło danych o wolnych miejscach dla tej tury.</p>"
+        dodatkowy_komunikat = "<p>Brak danych z API.</p>"
 
     body = f"""
 <h1 tabindex="-1" id="pageHeading">Wyniki</h1>
-<p><strong>Wybrana tura:</strong> {html.escape(opis_tury)}</p>
+<p>{html.escape(opis_tury)}</p>
 {dodatkowy_komunikat}
-<ul>
-{''.join(result_items)}
-</ul>
-<a class="button-link" href="/">Wróć do wyboru</a>
+{''.join(result_lines)}
+<a class="button-link" href="/">Wróć</a>
 <script>document.getElementById("pageHeading").focus();</script>
 """
     return render_page("Wyniki - Moje tury", body)
