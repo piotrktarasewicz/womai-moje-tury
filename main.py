@@ -30,6 +30,11 @@ SCHEMATY_NIEDZIELA = {
     ("13:00", "19:00"): ["13:00", "14:20", "16:00", "17:00", "18:00"],
 }
 
+IDW_NORMALNE = 23
+IDW_BEZ_DZIECI = 24
+IDW_NORMALNE_STARE = 1
+IDW_BEZ_DZIECI_STARE = 17
+
 
 def dzisiaj():
     return date.today()
@@ -224,45 +229,79 @@ def pobierz_weekendowe_zmiany():
     return results
 
 
-def pobierz_idw(dt: date):
+def pobierz_idw_typy(dt: date):
     if dt >= GRANICA_IDW:
-        return [23, 24]
-    return [1, 17]
+        return {
+            "normalne": IDW_NORMALNE,
+            "bez dzieci": IDW_BEZ_DZIECI,
+        }
+
+    return {
+        "normalne": IDW_NORMALNE_STARE,
+        "bez dzieci": IDW_BEZ_DZIECI_STARE,
+    }
 
 
-def pobierz_wolne(dt: date, godziny_wejsc, idw_list):
+def pobierz_wolne_dla_idw(dt: date, godziny_wejsc, idw: int):
     date_string = dt.isoformat()
     wyniki = {}
 
-    for idw in idw_list:
-        try:
-            response = requests.get(
-                API_URL,
-                params={
-                    "ajax": "pobierzTerminy",
-                    "selectedDate": date_string,
-                    "idw": idw,
-                    "idl": 0,
-                    "idg": 0
-                },
-                timeout=REQUEST_TIMEOUT
-            )
-            response.raise_for_status()
-            json_data = response.json()
-        except requests.RequestException:
-            continue
-        except ValueError:
-            continue
+    try:
+        response = requests.get(
+            API_URL,
+            params={
+                "ajax": "pobierzTerminy",
+                "selectedDate": date_string,
+                "idw": idw,
+                "idl": 0,
+                "idg": 0
+            },
+            timeout=REQUEST_TIMEOUT
+        )
+        response.raise_for_status()
+        json_data = response.json()
+    except requests.RequestException:
+        return {}
+    except ValueError:
+        return {}
 
-        if json_data.get("status") != "complete":
-            continue
+    if json_data.get("status") != "complete":
+        return {}
 
-        for item in json_data.get("data", []):
-            termin = str(item.get("terminGodzina", "")).strip()
-            wolne = item.get("wolne")
+    for item in json_data.get("data", []):
+        termin = str(item.get("terminGodzina", "")).strip()
+        wolne = item.get("wolne")
 
-            if termin in godziny_wejsc:
-                wyniki[termin] = wolne
+        if termin in godziny_wejsc:
+            wyniki[termin] = wolne
+
+    return wyniki
+
+
+def pobierz_wolne(dt: date, godziny_wejsc):
+    typy_idw = pobierz_idw_typy(dt)
+
+    normalne_map = pobierz_wolne_dla_idw(dt, godziny_wejsc, typy_idw["normalne"])
+    bez_dzieci_map = pobierz_wolne_dla_idw(dt, godziny_wejsc, typy_idw["bez dzieci"])
+
+    wyniki = {}
+
+    for godzina in godziny_wejsc:
+        rekordy = []
+
+        if godzina in normalne_map:
+            rekordy.append({
+                "typ": "normalne",
+                "wolne": normalne_map[godzina],
+            })
+
+        if godzina in bez_dzieci_map:
+            rekordy.append({
+                "typ": "bez dzieci",
+                "wolne": bez_dzieci_map[godzina],
+            })
+
+        wyniki[godzina] = rekordy
 
     return wyniki
 
@@ -348,18 +387,20 @@ def wynik(idx: int):
 """
         return render_page("Wyniki - Moje tury", body)
 
-    idw_list = pobierz_idw(dt)
-    wolne_map = pobierz_wolne(dt, entries, idw_list)
+    wolne_map = pobierz_wolne(dt, entries)
 
     result_items = []
     ma_dane = False
 
     for godzina in entries:
-        if godzina in wolne_map:
+        rekordy = wolne_map.get(godzina, [])
+
+        if rekordy:
             ma_dane = True
-            result_items.append(
-                f'<li>Godzina {html.escape(godzina)}: {html.escape(str(wolne_map[godzina]))} wolnych miejsc</li>'
-            )
+            for rekord in rekordy:
+                result_items.append(
+                    f'<li>Godzina {html.escape(godzina)}, {html.escape(rekord["typ"])}: {html.escape(str(rekord["wolne"]))} wolnych miejsc</li>'
+                )
         else:
             result_items.append(
                 f'<li>Godzina {html.escape(godzina)}: brak danych</li>'
